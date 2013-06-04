@@ -252,14 +252,14 @@ function recurly_theme() {
   );
   $items['recurly_subscription_summary'] = array(
     'arguments' => array(
-			/*
-			In the D7 version this function has a ton of arguments
-			So here im just passing one array and popping them out later on in a preprocess function
-			*/
-			'vars' => array(),
+      /*
+      In the D7 version this function has a ton of arguments
+      So here im just passing one array and popping them out later on in a preprocess function
+      */
+      'vars' => array(),
     ),
     'template' => 'templates/recurly-subscription-summary',
-		'file' => 'includes/recurly.pages.inc',
+    'file' => 'includes/recurly.pages.inc',
   );
   $items['recurly_credit_card_information'] = array(
     'arguments' => array(
@@ -305,14 +305,14 @@ function recurly_theme() {
  *Implementats of hook_user()
  */
 function recurly_user($op, &$edit, &$account){
-		switch($op){
-			case 'update':
-				recurly_entity_update($account, 'user');
-				break;
-			case 'delete':
-				recurly_entity_delete($account, 'user');
-				break;	
-		}
+    switch($op){
+      case 'update':
+        recurly_entity_update($account, 'user');
+        break;
+      case 'delete':
+        recurly_entity_delete($account, 'user');
+        break;  
+    }
 }
 
 
@@ -329,7 +329,7 @@ function recurly_entity_update($entity, $entity_type) {
 
   // Check if this entity has a remote Recurly account that we should sync.
   $id = recurly_extract_id($entity_type, $entity);
-	$local_account = recurly_account_load(array('entity_type' => $entity_type, 'entity_id' => $id), TRUE);
+  $local_account = recurly_account_load(array('entity_type' => $entity_type, 'entity_id' => $id), TRUE);
   if (!$local_account) {
     return;
   }
@@ -398,7 +398,7 @@ function recurly_entity_delete($entity, $entity_type) {
     // if we don't have any information about it.
     
     $id = recurly_extract_id($entity_type, $entity);
-		$local_account = recurly_account_load(array('entity_type' => $entity_type, 'entity_id' => $id), TRUE);
+    $local_account = recurly_account_load(array('entity_type' => $entity_type, 'entity_id' => $id), TRUE);
     if ($local_account) {
       $recurly_account = recurly_account_load(array('entity_type' => $entity_type, 'entity_id' => $id));
       recurly_account_delete($recurly_account);
@@ -443,6 +443,8 @@ function recurly_process_push_notification($key, $subdomain = NULL) {
     if ($key != variable_get('recurly_listener_key', '')) {
       // Log the failed attempt and bail.
       watchdog('recurly', 'Incoming push notification did not contain the proper URL key.', array(), WATCHDOG_WARNING);
+      header("Status: 403 Forbidden");
+      echo 'Forbidden';
       return;
     }
 
@@ -455,6 +457,9 @@ function recurly_process_push_notification($key, $subdomain = NULL) {
 
     // Bail if this is an empty or invalid notification.
     if (empty($notification) || empty($notification->type)) {
+      watchdog('recurly', 'Invalid notification type.');
+      header("Status: 403 Forbidden");
+      echo 'Forbidden';
       return;
     }
 
@@ -463,6 +468,7 @@ function recurly_process_push_notification($key, $subdomain = NULL) {
       watchdog('recurly', 'Incoming @type push notification: !notification', array('@type' => $notification->type, '!notification' => '<pre>' . check_plain(print_r($notification, TRUE)) . '</pre>'), WATCHDOG_NOTICE);
     }
 
+    // successful_payment_notification
     // If this is a new, canceled, or updated account set the database record.
     if (in_array($notification->type, array('new_account_notification', 'new_subscription_notification', 'canceled_account_notification', 'reactivated_account_notification', 'billing_info_updated_notification'))) {
       // Retrieve the full account record from Recurly.
@@ -471,7 +477,7 @@ function recurly_process_push_notification($key, $subdomain = NULL) {
       }
       catch (Recurly_NotFoundError $e) {
         drupal_set_message(t('Account not found'));
-        watchdog_exception('recurly', $e);
+        watchdog('recurly', 'Account not found at Recurly.');
       }
 
       // If we couldn't get anything, just attempt to use the submitted data.
@@ -489,27 +495,38 @@ function recurly_process_push_notification($key, $subdomain = NULL) {
         $parts = explode('-', $recurly_account->account_code);
         $entity_type = variable_get('recurly_entity_type', 'user');
         if ($parts[0] === $entity_type) {
+          // Look for a code like 'user-1' where we will user_load(1)
           if (isset($parts[1]) && is_numeric($parts[1]) && ($entity = user_load($parts[1]))) {
+            watchdog('recurly', 'Saving recurly information to account based on user id.');
             recurly_account_save($recurly_account, $entity_type, $parts[1]);
           }
+          // Something else here...
         }
-
-        // Attempt to find a matching user account by e-mail address if the
-        // enabled entity type is user.
-        elseif ($entity_type === 'user' && ($user = user_load_by_mail($recurly_account->email))) {
+        // Create or find user based on email address.
+        elseif ('user' == $entity_type && $user = recurly_email_to_user($recurly_account->email, array(), $recurly_account->email)) {
+          watchdog('recurly', 'Saving recurly info to account based on email.');
           recurly_account_save($recurly_account, 'user', $user->uid);
         }
       }
       elseif (!empty($local_account)) {
+        watchdog('recurly', 'Creating a new account');
         // Otherwise if a local record was found and we want to keep it
         // synchronized, save it afresh now, preserving any existing data array.
         recurly_account_save($recurly_account, $local_account->entity_type, $local_account->entity_id, $local_account->data);
       }
+      watchdog('recurly', 'Reached end of known notification type. @type', array('@type' => $notification->type));
     }
-
+    else {
+      watchdog('recurly', 'Unkown notification type: @type', array('@type' => $notification->type));
+    }
     // Allow other modules to respond to incoming notifications.
     module_invoke_all('recurly_process_push_notification', $subdomain, $notification);
   }
+  watchdog('recurly', 'Reached end of the function. @type', array('@type' => $notification->type));
+  header("HTTP/1.0 200 OK");
+  header("Status: 200 OK");
+  echo 'OK';
+  exit();
 }
 
 /**
@@ -586,11 +603,11 @@ function recurly_client_initialize($settings = NULL, $reset = FALSE) {
  *   data can be found locally at all.
  */
 function recurly_account_load($conditions = array(), $local = FALSE) {
-	foreach($conditions as $field => $value){
-		$fields[] = $field." = '%s'";
-		$values[] = $value;
-	}
-	$data = db_fetch_object(db_query("SELECT * FROM {recurly_account} WHERE " . implode(" AND ", $fields), $values));
+  foreach($conditions as $field => $value){
+    $fields[] = $field." = '%s'";
+    $values[] = $value;
+  }
+  $data = db_fetch_object(db_query("SELECT * FROM {recurly_account} WHERE " . implode(" AND ", $fields), $values));
 
   // Bail now if no data was returned.
   if (empty($data)) {
@@ -647,6 +664,7 @@ function recurly_account_load($conditions = array(), $local = FALSE) {
  *   save the account information locally.
  */
 function recurly_account_save($recurly_account, $entity_type, $entity_id, $data = array(), $export = FALSE) {
+  watchdog('recurly', 'Called recurly_account_save()');
   // First attempt to save the data at Recurly if specified. Failing an export
   // will prevent local data from being saved so you don't end up with a local
   // record that does not match a record at Recurly.
@@ -660,7 +678,7 @@ function recurly_account_save($recurly_account, $entity_type, $entity_id, $data 
         $recurly_account->update();
       }
       catch (Recurly_NotFoundError $e) {
-        //watchdog_exception('recurly', $e);
+        watchdog('recurly', 'No account found at recurly. recurly_account_save()');
         return FALSE;
       }
     }
@@ -670,7 +688,7 @@ function recurly_account_save($recurly_account, $entity_type, $entity_id, $data 
         $recurly_account->create();
       }
       catch (Recurly_NotFoundError $e) {
-        //watchdog_exception('recurly', $e);
+        watchdog('recurly', 'No account found at recurly. Could not create one. recurly_account_save()');
         return FALSE;
       }
     }
@@ -681,7 +699,7 @@ function recurly_account_save($recurly_account, $entity_type, $entity_id, $data 
     'entity_type' => $entity_type,
     'entity_id' => $entity_id,
     'updated' => REQUEST_TIME,
-		'account_code' => $entity_type.'-'.$entity_id,
+    'account_code' => $entity_type.'-'.$entity_id,
   );
 
   // Add the status based on whatever data we have available.
@@ -694,15 +712,84 @@ function recurly_account_save($recurly_account, $entity_type, $entity_id, $data 
   else {
     $fields['status'] = 'active';
   }
-  
-	
-	$exists = (bool) db_result(db_query("SELECT * FROM {recurly_account} WHERE account_code = '%s'", $recurly_account->account_code));
-	if($exists){
-		return drupal_write_record('recurly_account', $fields, array('account_code'));
-	} else {
-		return drupal_write_record('recurly_account', $fields);
-	}
 
+  $exists = (bool) db_result(db_query("SELECT * FROM {recurly_account} WHERE account_code = '%s'", $fields['account_code']));
+  if ($exists){
+    return drupal_write_record('recurly_account', $fields, array('account_code'));
+  } else {
+    return drupal_write_record('recurly_account', $fields);
+  }
+}
+
+/*
+ * Find or create user based on email - return user
+ */
+function recurly_email_to_user($email, $form_values = array(), $name = FALSE) {
+  $user_local = user_load(array('mail' => $email));
+
+  if ($user_local && $user_local->uid) {
+    return $user_local;
+  }
+
+  // Optionally look for a specific name before creating.
+  if ($name) { // know what you are doing - can cause issues
+    // try looking up local user using name.
+    $user_local = user_load(array('name' => $name));
+    if ($user_local && isset($user_local->uid)) {
+      // WARNING: Why wasn't the user found with mail search?
+      return $user_local;
+    }
+  }
+
+  // no local user found - cointinue with creation process
+  //drupal_set_message('no user exists, creating new user');
+  if (isset($form_values['name'])) {
+    $uname = $form_values['name'];
+  }
+  else { // create name from of email address
+    $uname = current(explode('@', $email));
+  }
+
+  // Look for a user that has this name already
+  $user_test = user_load(array('name' => $uname));
+
+  // Found a user
+  if ($user_test && $user_test->uid) {
+    //drupal_set_message('generating unique user name for '. $uname);
+    $num = 1;
+    while ($user_test && $user_test->uid) {
+      $num++;
+      // Try adding on a number at the end of the uname and look again.
+      $user_test = user_load(array('name' => $uname . $num));
+      // Keep going until a free name found.
+    }
+    $uname = $uname . $num;
+    //drupal_set_message('unique name is: '. $uname);
+  }
+
+  $form_values += array(
+    'name' => $uname,
+    'pass' => user_password(),
+    'mail' => $email,
+    'notify' => 0, // notify user about acct creation
+    'status' => 1, // 1 = active, 0 = blocked
+  );
+  $account = (object) $form_values;
+
+  user_save($account, $form_values, $category = 'account');
+  $user_local = user_load(array('mail' => $email));
+
+  if (!$user_local || !$user_local->uid) {
+    watchdog('acf_cfm', 'Could not create new user.', array(), WATCHDOG_ERROR);
+    //drupal_set_message(t(), 'error');
+    return FALSE;
+  }
+  // watchdog that we created a user
+  if (TRUE) {
+    watchdog('acf_cfm', 'Created a new user @name.', array('@name' => $user_local->name), WATCHDOG_NOTICE);
+  }
+  //drupal_set_message(t('Created @user', array('@user' => $account->name)));
+  return $user_local;
 }
 
 /**
@@ -753,7 +840,7 @@ function recurly_account_close($recurly_account, $cancelation_method = NULL) {
  */
 function recurly_account_delete($recurly_account, $cancelation_method = NULL) {
   recurly_account_close($recurly_account, $cancelation_method);
-	db_query("DELETE FROM {recurly_account} WHERE account_code = '%s'", $recurly_account->account_code);
+  db_query("DELETE FROM {recurly_account} WHERE account_code = '%s'", $recurly_account->account_code);
 }
 
 /**
@@ -808,11 +895,11 @@ function recurly_subscription_page_access($entity_type, $entity, $operation) {
   // Access callback is generally provided by Entity API, but for users and
   // nodes, provide general defaults.
   if ($entity_type === 'user') {
-	  $id = $entity->uid;
+    $id = $entity->uid;
     $access_callback = '_recurly_user_access';
   }
   elseif ($entity_type === 'node') {
-		$id = $entity->nid;
+    $id = $entity->nid;
     $access_callback = 'node_access';
   }
   else {
@@ -1026,18 +1113,18 @@ function _recurly_url_entity_url_parts($context) {
   }
   elseif (isset($context['account'])) {
     if ($account = recurly_account_load(array('account_code' => $context['account']->account_code), TRUE)) {
-			if($account->entity_type == 'user'){
-      	$entity = user_load($account->entity_id);
-			} else {
-				$entity = node_load($account->entity_id);
-			}
+      if($account->entity_type == 'user'){
+        $entity = user_load($account->entity_id);
+      } else {
+        $entity = node_load($account->entity_id);
+      }
       $entity_type = $account->entity_type;
     }
   }
   if (isset($entity)) {
     
-		//@@todo: in D6 this is either a node or a user.
-		$id = recurly_extract_id($entity_type, $entity);
+    //@@todo: in D6 this is either a node or a user.
+    $id = recurly_extract_id($entity_type, $entity);
     return array($entity_type, $id);
   }
 }
@@ -1250,19 +1337,19 @@ function recurly_format_transaction_status($status) {
 }
 
 function recurly_extract_id($entity_type, $entity){
-	if($entity_type == 'user'){
-		$id = $entity->uid;
-	} else {
-		$id = $entity->nid;
-	}
-	return $id;
+  if($entity_type == 'user'){
+    $id = $entity->uid;
+  } else {
+    $id = $entity->nid;
+  }
+  return $id;
 }
 
 function recurly_entity_label($entity_type, $entity){
-	if($entity_type == 'user'){
-		return $entity->name;
-	} else {
-		return $entity->title;
-	}
-	return $id;
+  if($entity_type == 'user'){
+    return $entity->name;
+  } else {
+    return $entity->title;
+  }
+  return $id;
 }
