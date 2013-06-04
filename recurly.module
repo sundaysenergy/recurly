@@ -436,92 +436,118 @@ function recurly_entity_delete($entity, $entity_type) {
 function recurly_process_push_notification($key, $subdomain = NULL) {
   $notification = NULL;
 
-  // If no subdomain was derived from the URL or the default account subdomain
-  // was specified...
-  if (empty($subdomain) || $subdomain == variable_get('recurly_subdomain', '')) {
-    // Ensure the push notification was sent to the proper URL.
-    if ($key != variable_get('recurly_listener_key', '')) {
-      // Log the failed attempt and bail.
-      watchdog('recurly', 'Incoming push notification did not contain the proper URL key.', array(), WATCHDOG_WARNING);
-      header("Status: 403 Forbidden");
-      echo 'Forbidden';
-      return;
-    }
-
-    // Initialize the Recurly client with the default account settings.
-    recurly_client_initialize();
-
-    // Retrieve the POST XML and create a notification object from it.
-    $post_xml = file_get_contents('php://input');
-    $notification = new Recurly_PushNotification($post_xml);
-
-    // Bail if this is an empty or invalid notification.
-    if (empty($notification) || empty($notification->type)) {
-      watchdog('recurly', 'Invalid notification type.');
-      header("Status: 403 Forbidden");
-      echo 'Forbidden';
-      return;
-    }
-
-    // Log the incoming push notification if enabled.
-    if (variable_get('recurly_push_logging', FALSE)) {
-      watchdog('recurly', 'Incoming @type push notification: !notification', array('@type' => $notification->type, '!notification' => '<pre>' . check_plain(print_r($notification, TRUE)) . '</pre>'), WATCHDOG_NOTICE);
-    }
-
-    // successful_payment_notification
-    // If this is a new, canceled, or updated account set the database record.
-    if (in_array($notification->type, array('new_account_notification', 'new_subscription_notification', 'canceled_account_notification', 'reactivated_account_notification', 'billing_info_updated_notification'))) {
-      // Retrieve the full account record from Recurly.
-      try {
-        $recurly_account = Recurly_Account::get($notification->account->account_code);
-      }
-      catch (Recurly_NotFoundError $e) {
-        drupal_set_message(t('Account not found'));
-        watchdog('recurly', 'Account not found at Recurly.');
-      }
-
-      // If we couldn't get anything, just attempt to use the submitted data.
-      if (empty($recurly_account)) {
-        $recurly_account = $notification->account;
-      }
-
-      // Look for a pre-existing local record.
-      $local_account = recurly_account_load(array('account_code' => $recurly_account->account_code), TRUE);
-
-      // If no local record exists and we've specified to create it...
-      if (empty($local_account)) {
-        // First try to match based on the account code.
-        // i.e. "user-1" would match the user with UID 1.
-        $parts = explode('-', $recurly_account->account_code);
-        $entity_type = variable_get('recurly_entity_type', 'user');
-        if ($parts[0] === $entity_type) {
-          // Look for a code like 'user-1' where we will user_load(1)
-          if (isset($parts[1]) && is_numeric($parts[1]) && ($entity = user_load($parts[1]))) {
-            watchdog('recurly', 'Saving recurly information to account based on user id.');
-            recurly_account_save($recurly_account, $entity_type, $parts[1]);
-          }
-          // Something else here...
-        }
-        // Create or find user based on email address.
-        elseif ('user' == $entity_type && $user = recurly_email_to_user($recurly_account->email, array(), $recurly_account->email)) {
-          watchdog('recurly', 'Saving recurly info to account based on email.');
-          recurly_account_save($recurly_account, 'user', $user->uid);
-        }
-      }
-      elseif (!empty($local_account)) {
-        watchdog('recurly', 'Creating a new account');
-        // Otherwise if a local record was found and we want to keep it
-        // synchronized, save it afresh now, preserving any existing data array.
-        recurly_account_save($recurly_account, $local_account->entity_type, $local_account->entity_id, $local_account->data);
-      }
-      watchdog('recurly', 'Reached end of known notification type. @type', array('@type' => $notification->type));
-    }
-    else {
-      watchdog('recurly', 'Unkown notification type: @type', array('@type' => $notification->type));
-    }
-    // Allow other modules to respond to incoming notifications.
-    module_invoke_all('recurly_process_push_notification', $subdomain, $notification);
+  // Ensure the push notification was sent to the proper URL.
+  if ($key != variable_get('recurly_listener_key', '')) {
+    // Log the failed attempt and bail.
+    watchdog('recurly', 'Incoming push notification did not contain the proper URL key.', array(), WATCHDOG_WARNING);
+    header("Status: 403 Forbidden");
+    echo 'Forbidden';
+    return;
   }
+
+  // If no subdomain set in the url get it from the variable.
+  if (is_null($subdomain)) {
+    $subdomain == variable_get('recurly_subdomain', '');
+  }
+
+  // Bail if the subdomain is not set to something.
+  if (!$subdomain) {
+    watchdog('recurly', 'Blank or empty subdomain in push notification..');
+    header("Status: 403 Forbidden");
+    echo 'Forbidden';
+    return;
+  }
+
+  // Initialize the Recurly client with the default account settings.
+  recurly_client_initialize();
+
+  // Retrieve the POST XML and create a notification object from it.
+  $post_xml = file_get_contents('php://input');
+  $notification = new Recurly_PushNotification($post_xml);
+
+  // Bail if this is an empty or invalid notification.
+  if (empty($notification) || empty($notification->type)) {
+    watchdog('recurly', 'Invalid notification type.');
+    header("Status: 403 Forbidden");
+    echo 'Forbidden';
+    return;
+  }
+
+  // Log the incoming push notification if enabled.
+  if (variable_get('recurly_push_logging', FALSE)) {
+    watchdog('recurly', 'Incoming @type push notification: !notification',
+      array(
+        '@type' => $notification->type,
+        '!notification' => '<pre>' . check_plain(print_r($notification, TRUE)) . '</pre>',
+      ),
+      WATCHDOG_NOTICE
+    );
+  }
+
+  // successful_payment_notification
+  $notification_types = array(
+    'new_account_notification',
+    'new_subscription_notification',
+    'canceled_account_notification',
+    'reactivated_account_notification',
+    'billing_info_updated_notification',
+  );
+
+  // If this is a new, canceled, or updated account set the database record.
+  if (in_array($notification->type, $notification_types)) {
+    // Retrieve the full account record from Recurly.
+    try {
+      $recurly_account = Recurly_Account::get($notification->account->account_code);
+    }
+    catch (Recurly_NotFoundError $e) {
+      drupal_set_message(t('Account not found'));
+      watchdog('recurly', 'Account not found at Recurly.');
+    }
+
+    // If we couldn't get anything, just attempt to use the submitted data.
+    if (empty($recurly_account)) {
+      $recurly_account = $notification->account;
+    }
+
+    // Look for a pre-existing local record.
+    $local_account = recurly_account_load(array('account_code' => $recurly_account->account_code), TRUE);
+
+    // If no local record exists and we've specified to create it...
+    if (empty($local_account)) {
+      // First try to match based on the account code.
+      // i.e. "user-1" would match the user with UID 1.
+      $parts = explode('-', $recurly_account->account_code);
+      $entity_type = variable_get('recurly_entity_type', 'user');
+      if ($parts[0] === $entity_type) {
+        // Look for a code like 'user-1' where we will user_load(1)
+        if (isset($parts[1]) && is_numeric($parts[1]) && ($entity = user_load($parts[1]))) {
+          watchdog('recurly', 'Saving recurly information to account based on user id.');
+          recurly_account_save($recurly_account, $entity_type, $parts[1]);
+        }
+        // Something else here...
+      }
+      // Create or find user based on email address.
+      elseif ('user' == $entity_type && $user = recurly_email_to_user($recurly_account->email, array(), $recurly_account->email)) {
+        watchdog('recurly', 'Saving recurly info to account based on email.');
+        recurly_account_save($recurly_account, 'user', $user->uid);
+      }
+    }
+    elseif (!empty($local_account)) {
+      watchdog('recurly', 'Creating a new account');
+      // Otherwise if a local record was found and we want to keep it
+      // synchronized, save it afresh now, preserving any existing data array.
+      recurly_account_save($recurly_account, $local_account->entity_type, $local_account->entity_id, $local_account->data);
+    }
+    watchdog('recurly', 'Reached end of known notification type. @type', array('@type' => $notification->type));
+  }
+  else {
+    watchdog('recurly', 'Unkown notification type: @type', array('@type' => $notification->type));
+  }
+
+  // Allow other modules to respond to incoming notifications.
+  module_invoke_all('recurly_process_push_notification', $subdomain, $notification);
+
+  // Sup recurly. We are all good. Thanks, bye.
   watchdog('recurly', 'Reached end of the function. @type', array('@type' => $notification->type));
   header("HTTP/1.0 200 OK");
   header("Status: 200 OK");
