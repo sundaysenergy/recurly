@@ -445,13 +445,15 @@ function recurly_process_push_notification($key, $subdomain = NULL) {
     return;
   }
 
+  $subdomain_valid = variable_get('recurly_subdomain', '');
+
   // If no subdomain set in the url get it from the variable.
   if (is_null($subdomain)) {
-    $subdomain == variable_get('recurly_subdomain', '');
+    $subdomain = $subdomain_valid;
   }
 
   // Bail if the subdomain is not set to something.
-  if (!$subdomain) {
+  if (!$subdomain || $subdomain != $subdomain_valid) {
     watchdog('recurly', 'Blank or empty subdomain in push notification..');
     header("Status: 403 Forbidden");
     echo 'Forbidden';
@@ -491,6 +493,7 @@ function recurly_process_push_notification($key, $subdomain = NULL) {
     'canceled_account_notification',
     'reactivated_account_notification',
     'billing_info_updated_notification',
+    'successful_payment_notification',
   );
 
   // If this is a new, canceled, or updated account set the database record.
@@ -514,6 +517,7 @@ function recurly_process_push_notification($key, $subdomain = NULL) {
 
     // If no local record exists and we've specified to create it...
     if (empty($local_account)) {
+      watchdog('recurly', 'Could not find local account with info supplied in notification.');
       // First try to match based on the account code.
       // i.e. "user-1" would match the user with UID 1.
       $parts = explode('-', $recurly_account->account_code);
@@ -524,16 +528,24 @@ function recurly_process_push_notification($key, $subdomain = NULL) {
           watchdog('recurly', 'Saving recurly information to account based on user id.');
           recurly_account_save($recurly_account, $entity_type, $parts[1]);
         }
-        // Something else here...
+        else {
+          watchdog(
+            'recurly', 'wtf yo. entity_type: @entity_type entity_id: @entity_id',
+            array(
+              '@entity_type' => $entity_type,
+              '@entity_id' => $parts[1],
+            )
+          );
+        }
       }
       // Create or find user based on email address.
       elseif ('user' == $entity_type && $user = recurly_email_to_user($recurly_account->email, array(), $recurly_account->email)) {
-        watchdog('recurly', 'Saving recurly info to account based on email.');
+        watchdog('recurly', 'Saving recurly info to a new Drupal account based on email @email.', array('@email' => $recurly_account->email));
         recurly_account_save($recurly_account, 'user', $user->uid);
       }
     }
     elseif (!empty($local_account)) {
-      watchdog('recurly', 'Creating a new account');
+      watchdog('recurly', 'Creating a new RECURLY account!');
       // Otherwise if a local record was found and we want to keep it
       // synchronized, save it afresh now, preserving any existing data array.
       recurly_account_save($recurly_account, $local_account->entity_type, $local_account->entity_id, $local_account->data);
@@ -547,8 +559,9 @@ function recurly_process_push_notification($key, $subdomain = NULL) {
   // Allow other modules to respond to incoming notifications.
   module_invoke_all('recurly_process_push_notification', $subdomain, $notification);
 
+  #watchdog('recurly', 'Reached end of the function. @type', array('@type' => $notification->type));
+
   // Sup recurly. We are all good. Thanks, bye.
-  watchdog('recurly', 'Reached end of the function. @type', array('@type' => $notification->type));
   header("HTTP/1.0 200 OK");
   header("Status: 200 OK");
   echo 'OK';
@@ -690,7 +703,7 @@ function recurly_account_load($conditions = array(), $local = FALSE) {
  *   save the account information locally.
  */
 function recurly_account_save($recurly_account, $entity_type, $entity_id, $data = array(), $export = FALSE) {
-  watchdog('recurly', 'Called recurly_account_save()');
+  watchdog('recurly', 'Called recurly_account_save() ' . $entity_id);
   // First attempt to save the data at Recurly if specified. Failing an export
   // will prevent local data from being saved so you don't end up with a local
   // record that does not match a record at Recurly.
@@ -797,7 +810,7 @@ function recurly_email_to_user($email, $form_values = array(), $name = FALSE) {
     'name' => $uname,
     'pass' => user_password(),
     'mail' => $email,
-    'notify' => 0, // notify user about acct creation
+    'notify' => 1, // Notify user via email about account creation.
     'status' => 1, // 1 = active, 0 = blocked
   );
   $account = (object) $form_values;
@@ -806,13 +819,13 @@ function recurly_email_to_user($email, $form_values = array(), $name = FALSE) {
   $user_local = user_load(array('mail' => $email));
 
   if (!$user_local || !$user_local->uid) {
-    watchdog('acf_cfm', 'Could not create new user.', array(), WATCHDOG_ERROR);
+    watchdog('recurly', 'Could not create new user.', array(), WATCHDOG_ERROR);
     //drupal_set_message(t(), 'error');
     return FALSE;
   }
   // watchdog that we created a user
   if (TRUE) {
-    watchdog('acf_cfm', 'Created a new user @name.', array('@name' => $user_local->name), WATCHDOG_NOTICE);
+    watchdog('recurly', 'Created a new user @name.', array('@name' => $user_local->name), WATCHDOG_NOTICE);
   }
   //drupal_set_message(t('Created @user', array('@user' => $account->name)));
   return $user_local;
