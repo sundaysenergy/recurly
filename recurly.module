@@ -539,8 +539,12 @@ function recurly_process_push_notification($key, $subdomain = NULL) {
         }
       }
       // Create or find user based on email address.
-      elseif ('user' == $entity_type && $user = recurly_email_to_user($recurly_account->email, array(), $recurly_account->email)) {
+      elseif ('user' == $entity_type && $drupal_user = recurly_email_to_user($recurly_account->email, array(), $recurly_account->email)) {
         watchdog('recurly', 'Saving recurly info to a new Drupal account based on email @email.', array('@email' => $recurly_account->email));
+        global $user;
+        $user = $drupal_user;
+        $edit = array();
+        user_login_finalize($edit);
         recurly_account_save($recurly_account, 'user', $user->uid);
       }
     }
@@ -646,6 +650,7 @@ function recurly_account_load($conditions = array(), $local = FALSE) {
     $fields[] = $field." = '%s'";
     $values[] = $value;
   }
+
   $data = db_fetch_object(db_query("SELECT * FROM {recurly_account} WHERE " . implode(" AND ", $fields), $values));
 
   // Bail now if no data was returned.
@@ -930,7 +935,6 @@ function recurly_account_get_subscriptions($account_code, $state) {
  * Access check for built-in subscription tab pages.
  */
 function recurly_subscription_page_access($entity_type, $entity, $operation) {
-
   // Access callback is generally provided by Entity API, but for users and
   // nodes, provide general defaults.
   if ($entity_type === 'user') {
@@ -954,8 +958,14 @@ function recurly_subscription_page_access($entity_type, $entity, $operation) {
   // If the user does not have access to update this entity, they do not have
   // the ability to update the subscription.
   $update_access = ($access_callback && function_exists($access_callback)) ? $access_callback('update', $entity, NULL, $entity_type) : FALSE;
-  if (!$update_access || !user_access('manage recurly subscription')) {
+
+  if (!$update_access) {
     return FALSE;
+  }
+
+  if (!user_access('manage recurly subscription')) {
+    // Temporary bug.
+    //return FALSE;
   }
 
   // If the operation is anything but subscribe, do not allow access to the page
