@@ -541,11 +541,8 @@ function recurly_process_push_notification($key, $subdomain = NULL) {
       // Create or find user based on email address.
       elseif ('user' == $entity_type && $drupal_user = recurly_email_to_user($recurly_account->email, array(), $recurly_account->email)) {
         watchdog('recurly', 'Saving recurly info to a new Drupal account based on email @email.', array('@email' => $recurly_account->email));
-        global $user;
-        $user = $drupal_user;
-        $edit = array();
-        user_login_finalize($edit);
-        recurly_account_save($recurly_account, 'user', $user->uid);
+
+        recurly_account_save($recurly_account, 'user', $drupal_user->uid);
       }
     }
     elseif (!empty($local_account)) {
@@ -652,9 +649,9 @@ function recurly_account_load($conditions = array(), $local = FALSE) {
   }
 
   $data = db_fetch_object(db_query("SELECT * FROM {recurly_account} WHERE " . implode(" AND ", $fields), $values));
-
+  watchdog('recurly', print_r($fields,1) . print_r($values,1));
   // Bail now if no data was returned.
-  if (empty($data)) {
+  if ($local && empty($data)) {
     return FALSE;
   }
 
@@ -683,7 +680,7 @@ function recurly_account_load($conditions = array(), $local = FALSE) {
   catch (Exception $e) {
     return $data;
   }
-
+  $recurly_account->local_data = $data;
   return $recurly_account;
 }
 
@@ -708,7 +705,7 @@ function recurly_account_load($conditions = array(), $local = FALSE) {
  *   save the account information locally.
  */
 function recurly_account_save($recurly_account, $entity_type, $entity_id, $data = array(), $export = FALSE) {
-  watchdog('recurly', 'Called recurly_account_save() ' . $entity_id);
+  watchdog('recurly', 'Called recurly_account_save() ' . $entity_id . ' <pre>' . print_r($recurly_account, 1) . '</pre>');
   // First attempt to save the data at Recurly if specified. Failing an export
   // will prevent local data from being saved so you don't end up with a local
   // record that does not match a record at Recurly.
@@ -745,6 +742,9 @@ function recurly_account_save($recurly_account, $entity_type, $entity_id, $data 
     'updated' => REQUEST_TIME,
     'account_code' => $entity_type.'-'.$entity_id,
   );
+  if (isset($recurly_account->account_code)) {
+    $fields['account_code'] = $recurly_account->account_code;
+  }
 
   // Add the status based on whatever data we have available.
   if (!empty($recurly_account->state)) {
