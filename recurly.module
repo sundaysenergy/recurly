@@ -649,7 +649,7 @@ function recurly_account_load($conditions = array(), $local = FALSE) {
   }
 
   $data = db_fetch_object(db_query("SELECT * FROM {recurly_account} WHERE " . implode(" AND ", $fields), $values));
-  watchdog('recurly', print_r($fields,1) . print_r($values,1));
+
   // Bail now if no data was returned.
   if ($local && empty($data)) {
     return FALSE;
