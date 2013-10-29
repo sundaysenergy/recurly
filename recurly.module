@@ -822,7 +822,9 @@ function recurly_email_to_user($email, $form_values = array(), $name = FALSE) {
 
   user_save($account, $form_values, $category = 'account');
   $user_local = user_load(array('mail' => $email));
-  _user_mail_notify('password_reset', $account);
+  global $language;
+  // Mail one time login URL and instructions using current language.
+  _user_mail_notify('password_reset', $user_local, $language);
 
   if (!$user_local || !$user_local->uid) {
     watchdog('recurly', 'Could not create new user.', array(), WATCHDOG_ERROR);
