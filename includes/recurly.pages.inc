@@ -31,8 +31,8 @@ function recurly_subscription_list_page($entity_type, $entity) {
 
   // Load the account information. This should already be cached by the access
   // check to this page by recurly_subscription_page_access().
-  
-	
+
+
 	$id = recurly_extract_id($entity_type, $entity);
   $account = recurly_account_load(array('entity_type' => $entity_type, 'entity_id' => $id));
 
@@ -95,7 +95,7 @@ function recurly_subscription_list_page($entity_type, $entity) {
       $message = recurly_subscription_state_message($state, array('account' => $account, 'subscription' => $subscription));
       break;
     }
-		
+
 		$vars = array('#plan_code' => $plan->plan_code,
 										'#plan_name' => check_plain($plan->name),
 										'#state_array' => $states,
@@ -110,12 +110,12 @@ function recurly_subscription_list_page($entity_type, $entity) {
 										'#subscription_links' => $links ? theme('links', $links, array('class' => 'inline links')) : NULL,
 										'#message' => $message,
 										);
-										
+
     $subscriptions['subscriptions'][$subscription->uuid] = array(
-			'#value' => theme('recurly_subscription_summary', $vars),							
+			'#value' => theme('recurly_subscription_summary', $vars),
     );
   }
-  
+
 	// @@todo: I don't think the pager is working here.
   $subscriptions['pager'] = array(
     '#value' => theme('pager'),
@@ -291,8 +291,8 @@ function recurly_subscription_plan_select($entity_type, $entity, $currency = NUL
   // If loading an existing subscription.
   if ($subscription_id) {
     if ($subscription_id === 'latest') {
-      
-			
+
+
 			$id = recurly_extract_id($entity_type, $entity);
       $local_account = recurly_account_load(array('entity_type' => $entity_type, 'entity_id' => $id), TRUE);
       $subscriptions = recurly_account_get_subscriptions($local_account->account_code, 'active');
@@ -387,8 +387,8 @@ function template_preprocess_recurly_subscription_plan_select(&$variables) {
         break;
       }
     }
-    
-		
+
+
 		$id = recurly_extract_id($entity_type, $entity);
     $variables['filtered_plans'][$plan_code] = array(
       'plan_code' => check_plain($plan_code),
@@ -420,8 +420,8 @@ function template_preprocess_recurly_subscription_plan_select(&$variables) {
 
   // Check if this is an account that is creating a new subscription.
   $variables['expired_subscriptions'] = FALSE;
-  
-  
+
+
 	$id = recurly_extract_id($entity_type, $entity);
 	$account = recurly_account_load(array('entity_type' => $entity_type, 'entity_id' => $id));
   if ($account) {
@@ -536,8 +536,8 @@ function recurly_subscription_plan_change_confirm_submit($form, &$form_state) {
   $subscription = $form['#subscription'];
   $new_plan = $form['#new_plan'];
   $timeframe = $form_state['values']['timeframe'];
-  
-	
+
+
 	$id = recurly_extract_id($entity_type, $entity);
   // Update the plan.
   $subscription->plan_code = $new_plan->plan_code;
@@ -573,8 +573,8 @@ function recurly_subscription_cancel_page($entity_type, $entity, $subscription_i
 
   // Load the subscription.
   if ($subscription_id === 'latest') {
-    
-    
+
+
 		$id = recurly_extract_id($entity_type, $entity);
 		$local_account = recurly_account_load(array('entity_type' => $entity_type, 'entity_id' => $id), TRUE);
     $subscriptions = recurly_account_get_subscriptions($local_account->account_code, 'active');
@@ -684,8 +684,8 @@ function recurly_subscription_cancel_confirm_submit($form, &$form_state) {
   $entity = $form['#entity'];
   $entity_type = $form['#entity_type'];
   $subscription = $form['#subscription'];
-  
-	
+
+
 	$id = recurly_extract_id($entity_type, $entity);
   if ($form['cancel']['actions']['cancel']['#value'] === $form_state['values']['op']) {
     try {
@@ -742,8 +742,8 @@ function recurly_subscription_reactivate($entity_type, $entity, $subscription_id
 
   // Load the subscription.
   if ($subscription_id === 'latest') {
-    
-    
+
+
 		$id = recurly_extract_id($entity_type, $entity);
 		$local_account = recurly_account_load(array('entity_type' => $entity_type, 'entity_id' => $id), TRUE);
     $subscriptions = recurly_account_get_subscriptions($local_account->account_code, 'active');
@@ -783,8 +783,8 @@ function recurly_invoices_page($entity_type, $entity) {
 
   // Load the account information. This should already be cached by the access
   // check to this page by recurly_subscription_page_access().
-  
-	
+
+
 	$id = recurly_extract_id($entity_type, $entity);
   $account = recurly_account_load(array('entity_type' => $entity_type, 'entity_id' => $id));
 
@@ -802,8 +802,8 @@ function template_preprocess_recurly_invoice_list(&$variables) {
   $invoices = $variables['invoices'];
   $entity_type = $variables['entity_type'];
   $entity = $variables['entity'];
-  
-  
+
+
 	$id = recurly_extract_id($entity_type, $entity);
   $header = array(t('Number'), t('Date'), t('Total'));
   $rows = array();
@@ -825,8 +825,8 @@ function template_preprocess_recurly_invoice_list(&$variables) {
       'class' => check_plain($invoice->state),
     );
   }
-	
-	$variables['table']  = theme('table', $header, $rows, array('class' => 'invoice-list'));	
+
+	$variables['table']  = theme('table', $header, $rows, array('class' => 'invoice-list'));
 }
 
 /**
@@ -879,7 +879,7 @@ function template_preprocess_recurly_invoice(&$variables) {
   $invoice_account = $variables['invoice_account'];
   $billing_info = isset($invoice->billing_info) ? $invoice->billing_info->get() : NULL;
   //list($id, $vid, $bundle) = entity_extract_ids($variables['entity_type'], $variables['entity']);
-	
+
 	$id = recurly_extract_id($variables['entity_type'], $variables['entity']);
 
   $due_amount = $invoice->state !== 'collected' ? $invoice->total_in_cents : 0;
@@ -944,8 +944,8 @@ function recurly_invoice_pdf($entity_type, $entity, $invoice_number) {
 
   // Load the account information. This should already be cached by the access
   // check to this page by recurly_subscription_page_access().
-  
-	
+
+
 	$id = recurly_extract_id($entity_type, $entity);
   $account = recurly_account_load(array('entity_type' => $entity_type, 'entity_id' => $id));
 
